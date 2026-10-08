@@ -67,12 +67,17 @@ class TestMLPipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.data = pd.read_csv(DATA_FILE)
-        cls.model = joblib.load(MODEL_FILE)
+
+        cls.model = joblib.load(
+            MODEL_FILE
+        )
 
         with open(METRICS_FILE, "r") as file:
             cls.metrics = json.load(file)
 
-        cls.feature_data = feature_engineering(cls.data)
+        cls.feature_data = feature_engineering(
+            cls.data
+        )
 
         cls.X = cls.feature_data.drop(
             columns=[
@@ -117,6 +122,12 @@ class TestMLPipeline(unittest.TestCase):
             1.0
         )
 
+        # Temporary failure for CI demonstration
+        self.assertEqual(
+            1,
+            0
+        )
+
     # Test 5
     def test_feature_count(self):
         expected_features = self.metrics[
@@ -136,7 +147,9 @@ class TestMLPipeline(unittest.TestCase):
     def test_model_prediction(self):
         sample = self.X.iloc[[0]]
 
-        prediction = self.model.predict(sample)
+        prediction = self.model.predict(
+            sample
+        )
 
         self.assertEqual(
             len(prediction),
@@ -174,7 +187,9 @@ class TestMLPipeline(unittest.TestCase):
             errors="ignore"
         )
 
-        prediction = self.model.predict(X_high)
+        prediction = self.model.predict(
+            X_high
+        )
 
         self.assertEqual(
             int(prediction[0]),
@@ -207,7 +222,9 @@ class TestMLPipeline(unittest.TestCase):
             errors="ignore"
         )
 
-        prediction = self.model.predict(X_low)
+        prediction = self.model.predict(
+            X_low
+        )
 
         self.assertEqual(
             int(prediction[0]),
