@@ -50,9 +50,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: student-result-ml-artifacts
-          path: |
-            THIS_FILE_MUST_NOT_EXIST_12345.pkl
-            metrics.json
-            students.csv
+          path: THIS_FILE_MUST_NOT_EXIST_12345.pkl
           if-no-files-found: error
           retention-days: 7
