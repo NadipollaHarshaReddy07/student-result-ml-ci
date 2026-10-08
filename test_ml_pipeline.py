@@ -108,18 +108,19 @@ class TestMLPipeline(unittest.TestCase):
             os.path.exists(METRICS_FILE)
         )
 
-   def test_accuracy_is_valid(self):
-    accuracy = self.metrics["accuracy"]
+    # Test 4
+    def test_accuracy_is_valid(self):
+        accuracy = self.metrics["accuracy"]
 
-    self.assertGreaterEqual(
-        accuracy,
-        0.0
-    )
+        self.assertGreaterEqual(
+            accuracy,
+            0.0
+        )
 
-    self.assertLessEqual(
-        accuracy,
-        1.0
-    )
+        self.assertLessEqual(
+            accuracy,
+            1.0
+        )
 
     # Test 5
     def test_feature_count(self):
