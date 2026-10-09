@@ -41,6 +41,7 @@ jobs:
       - name: Check ML quality gate
         run: |
           python quality_gate.py
+          
       - name: Test Flask prediction API
         run: |
           pytest -v test_app.py    
