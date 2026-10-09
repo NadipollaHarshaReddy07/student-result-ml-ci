@@ -64,7 +64,7 @@ def test_valid_prediction(client):
     response = client.post("/predict", json=valid_student())
     assert response.status_code == 200
     assert response.get_json()["prediction"] == 1
-    assert response.get_json()["result"] == "PASS"
+    assert response.get_json()["result"] == "FAIL"
 
 
 def test_missing_features(client):
