@@ -61,7 +61,15 @@ jobs:
             'Student Academic Performance Prediction API' \
             'Start with: python app.py' \
             'Prediction endpoint: POST /predict' \
-            > release_candidate/DEPLOYMENT.txt    
+            > release_candidate/DEPLOYMENT.txt 
+
+      - name: Upload ML release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: student-result-ml-release
+          path: release_candidate/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload validated ML artifacts
         uses: actions/upload-artifact@v7
