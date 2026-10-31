@@ -1,3 +1,4 @@
+
 name: Student Academic Performance ML CI
 
 on:
@@ -16,11 +17,9 @@ permissions:
 
 jobs:
   ml-pipeline:
-
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Get project code
         uses: actions/checkout@v7
 
@@ -44,11 +43,12 @@ jobs:
 
       - name: Test ML pipeline
         run: |
-          python -m unittest test_ml_pipeline.py -v    
-          
+          python -m unittest test_ml_pipeline.py -v
+
       - name: Test Flask prediction API
         run: |
           pytest -v test_app.py
+
       - name: Prepare release candidate
         run: |
           mkdir -p release_candidate
@@ -57,15 +57,14 @@ jobs:
           cp metrics.json release_candidate/
           cp requirements.txt release_candidate/
           cp students.csv release_candidate/
-
           cp Dockerfile release_candidate/
           cp .dockerignore release_candidate/
-          
+
           printf '%s\n' \
             'Student Academic Performance Prediction API' \
             'Start with: python app.py' \
             'Prediction endpoint: POST /predict' \
-            > release_candidate/DEPLOYMENT.txt 
+            > release_candidate/DEPLOYMENT.txt
 
       - name: Upload ML release package
         uses: actions/upload-artifact@v7
@@ -74,6 +73,7 @@ jobs:
           path: release_candidate/
           if-no-files-found: error
           retention-days: 7
+          include-hidden-files: true
 
       - name: Upload validated ML artifacts
         uses: actions/upload-artifact@v7
@@ -85,4 +85,3 @@ jobs:
             students.csv
           if-no-files-found: error
           retention-days: 7
-          include-hidden-files: true
