@@ -57,6 +57,10 @@ jobs:
           cp metrics.json release_candidate/
           cp requirements.txt release_candidate/
           cp students.csv release_candidate/
+
+          cp Dockerfile release_candidate/
+          cp .dockerignore release_candidate/
+          
           printf '%s\n' \
             'Student Academic Performance Prediction API' \
             'Start with: python app.py' \
