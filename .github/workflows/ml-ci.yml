@@ -49,6 +49,90 @@ jobs:
         run: |
           pytest -v test_app.py
 
+      # Practical-7: Build Docker image
+      - name: Build Docker image
+        run: |
+          docker build -t student-result-ml:${{ github.sha }} .
+
+      # Start Docker container
+      - name: Start Docker container
+        run: |
+          docker run -d \
+            --name student-result-ml-container \
+            -p 5000:5000 \
+            student-result-ml:${{ github.sha }}
+
+      # Check application health
+      - name: Wait for application to become ready
+        run: |
+          for i in {1..15}; do
+            if curl --fail --silent http://localhost:5000/health; then
+              echo "Application is ready."
+              exit 0
+            fi
+            echo "Waiting for application... attempt $i"
+            sleep 2
+          done
+
+          echo "Application did not become ready."
+          docker logs student-result-ml-container
+          exit 1
+
+      # Test actual Student Academic Performance prediction API
+      - name: Test prediction endpoint
+        run: |
+          response=$(curl --fail --silent --show-error \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d '{
+              "age":18,
+              "gender":"Male",
+              "ethnicity":"Group A",
+              "parental_education":"Bachelor",
+              "family_income":"Medium",
+              "school_type":"Public",
+              "school_region":"Urban",
+              "study_hours_per_week":15,
+              "attendance_rate":90,
+              "extracurricular_activities":2,
+              "sports_participation":1,
+              "tutoring_sessions":3,
+              "parental_involvement":"High",
+              "internet_access":"Yes",
+              "has_laptop":"Yes",
+              "sleep_hours":7,
+              "stress_level":4,
+              "motivation_score":8,
+              "reading_score":80,
+              "writing_score":82,
+              "math_score":85,
+              "science_score":84
+            }' \
+            http://localhost:5000/predict)
+
+          echo "Prediction response: $response"
+
+          echo "$response" | python -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          assert data["prediction"] in [0, 1], "Invalid prediction"
+          assert data["result"] in ["PASS", "FAIL"], "Invalid result"
+          print("Prediction API test passed.")
+          '
+
+      # Capture logs even if an earlier step fails
+      - name: Show Docker container logs
+        if: always()
+        run: |
+          docker logs student-result-ml-container || true
+
+      # Always stop and remove the container
+      - name: Stop and remove Docker container
+        if: always()
+        run: |
+          docker rm -f student-result-ml-container || true
+
+      # Prepare release package
       - name: Prepare release candidate
         run: |
           mkdir -p release_candidate
@@ -66,6 +150,7 @@ jobs:
             'Prediction endpoint: POST /predict' \
             > release_candidate/DEPLOYMENT.txt
 
+      # Upload release package
       - name: Upload ML release package
         uses: actions/upload-artifact@v7
         with:
@@ -75,6 +160,7 @@ jobs:
           retention-days: 7
           include-hidden-files: true
 
+      # Upload validated artifacts
       - name: Upload validated ML artifacts
         uses: actions/upload-artifact@v7
         with:
