@@ -7,7 +7,8 @@ import logging
 import joblib
 import numpy as np
 import pandas as pd
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, Response
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from werkzeug.exceptions import HTTPException
 
 # Send structured application logs to stdout so Render can collect them.
@@ -18,6 +19,27 @@ logging.basicConfig(
 )
 app = Flask(__name__)
 app.logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+
+# Prometheus metrics for API traffic, latency, prediction outcomes, and model readiness.
+HTTP_REQUESTS = Counter(
+    "student_api_http_requests_total",
+    "Total HTTP requests received by the Student Result Prediction API",
+    ["method", "path", "status"],
+)
+HTTP_LATENCY = Histogram(
+    "student_api_http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "path"],
+)
+PREDICTIONS = Counter(
+    "student_api_predictions_total",
+    "Total Student Result Prediction inference attempts",
+    ["result"],
+)
+MODEL_LOADED = Gauge(
+    "student_api_model_loaded",
+    "Whether the Student Result Prediction model is loaded",
+)
 
 MODEL_FILE = "student_academic_model.pkl"
 
@@ -75,11 +97,13 @@ NUMERIC_FEATURES = [
 
 def load_model():
     if not os.path.exists(MODEL_FILE):
-        app.logger.error("Model file is missing: %s", MODEL_FILE)
+        MODEL_LOADED.set(0)
+    app.logger.error("Model file is missing: %s", MODEL_FILE)
         raise FileNotFoundError(
             f"{MODEL_FILE} not found. Train the model before starting the API."
         )
     loaded_model = joblib.load(MODEL_FILE)
+    MODEL_LOADED.set(1)
     app.logger.info("Prediction model loaded successfully: %s", MODEL_FILE)
     return loaded_model
 
@@ -106,6 +130,19 @@ def finish_request_logging(response):
     duration_ms = (time.perf_counter() - start_time) * 1000
 
     response.headers["X-Request-ID"] = request_id
+
+    # Exclude Prometheus scrapes from user-traffic metrics.
+    if request.path != "/metrics":
+        HTTP_REQUESTS.labels(
+            method=request.method,
+            path=request.path,
+            status=str(response.status_code),
+        ).inc()
+        HTTP_LATENCY.labels(
+            method=request.method,
+            path=request.path,
+        ).observe(duration_ms / 1000.0)
+
     log_message = (
         "Request completed request_id=%s method=%s path=%s status=%s duration_ms=%.2f"
     )
@@ -198,6 +235,15 @@ def engineer_features(data):
     return df.reindex(columns=FEATURE_COLUMNS)
 
 
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    """Expose application metrics in Prometheus text exposition format."""
+    return Response(
+        generate_latest(),
+        mimetype=CONTENT_TYPE_LATEST,
+    )
+
+
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
@@ -248,6 +294,7 @@ def predict():
 
         input_data = engineer_features(input_data)
         prediction = int(model.predict(input_data)[0])
+        PREDICTIONS.labels(result="success").inc()
 
         result = "PASS" if prediction == 1 else "FAIL"
         app.logger.info(
@@ -263,6 +310,7 @@ def predict():
         })
 
     except (TypeError, ValueError) as error:
+        PREDICTIONS.labels(result="error").inc()
         app.logger.warning(
             "Prediction input validation failed request_id=%s error_type=%s",
             getattr(g, "request_id", "unavailable"),
