@@ -1,0 +1,115 @@
+name: Practical 9 - Docker Build Test and GHCR Publish
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/nadipollaharshareddy07/student-result-ml
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download model artifacts from successful ML CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_ID=$(gh run list --workflow ml-ci.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No successful ML CI run found. Run ml-ci.yml first."
+            exit 1
+          fi
+          echo "Using successful ML CI run: $RUN_ID"
+          gh run download "$RUN_ID" --name student-result-ml-artifacts --dir .
+          test -f student_academic_model.pkl
+          test -f metrics.json
+
+      - name: Build Docker image
+        run: |
+          docker build -t "$IMAGE_NAME:latest" -t "$IMAGE_NAME:sha-$GITHUB_SHA" .
+
+      - name: Start test container
+        run: |
+          docker run -d --name student-result-ml-container -p 5000:5000 "$IMAGE_NAME:latest"
+
+      - name: Check application health
+        run: |
+          for i in {1..15}; do
+            if curl --fail --silent http://localhost:5000/health; then
+              echo "Application health check passed."
+              exit 0
+            fi
+            echo "Waiting for application... attempt $i"
+            sleep 2
+          done
+          echo "Application health check failed."
+          docker logs student-result-ml-container
+          exit 1
+
+      - name: Test prediction endpoint
+        run: |
+          response=$(curl --fail --silent --show-error -X POST -H "Content-Type: application/json" -d '{
+            "age":18,
+            "gender":"Male",
+            "ethnicity":"Group A",
+            "parental_education":"Bachelor",
+            "family_income":"Medium",
+            "school_type":"Public",
+            "school_region":"Urban",
+            "study_hours_per_week":15,
+            "attendance_rate":90,
+            "extracurricular_activities":2,
+            "sports_participation":1,
+            "tutoring_sessions":3,
+            "parental_involvement":"High",
+            "internet_access":"Yes",
+            "has_laptop":"Yes",
+            "sleep_hours":7,
+            "stress_level":4,
+            "motivation_score":8,
+            "reading_score":80,
+            "writing_score":82,
+            "math_score":85,
+            "science_score":84
+          }' http://localhost:5000/predict)
+          echo "Prediction response: $response"
+          echo "$response" | python -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          assert data["prediction"] in [0, 1]
+          assert data["result"] in ["PASS", "FAIL"]
+          print("Prediction API test passed.")
+          '
+
+      - name: Show container logs
+        if: always()
+        run: docker logs student-result-ml-container || true
+
+      - name: Stop and remove test container
+        if: always()
+        run: docker rm -f student-result-ml-container || true
+
+      - name: Log in to GitHub Container Registry
+        if: success()
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Docker image to GHCR
+        if: success()
+        run: |
+          docker push "$IMAGE_NAME:latest"
+          docker push "$IMAGE_NAME:sha-$GITHUB_SHA"
