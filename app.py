@@ -1,11 +1,22 @@
-
 import os
+import sys
+import time
+import uuid
+import logging
+
 import joblib
 import numpy as np
 import pandas as pd
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 
+# Send structured application logs to stdout so Render can collect them.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stdout,
+)
 app = Flask(__name__)
+app.logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
 
 MODEL_FILE = "student_academic_model.pkl"
 
@@ -63,13 +74,70 @@ NUMERIC_FEATURES = [
 
 def load_model():
     if not os.path.exists(MODEL_FILE):
+        app.logger.error("Model file is missing: %s", MODEL_FILE)
         raise FileNotFoundError(
             f"{MODEL_FILE} not found. Train the model before starting the API."
         )
-    return joblib.load(MODEL_FILE)
+    loaded_model = joblib.load(MODEL_FILE)
+    app.logger.info("Prediction model loaded successfully: %s", MODEL_FILE)
+    return loaded_model
 
 
 model = load_model()
+
+
+@app.before_request
+def start_request_logging():
+    g.request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    g.request_start_time = time.perf_counter()
+    app.logger.info(
+        "Request started request_id=%s method=%s path=%s",
+        g.request_id,
+        request.method,
+        request.path,
+    )
+
+
+@app.after_request
+def finish_request_logging(response):
+    request_id = getattr(g, "request_id", "unavailable")
+    start_time = getattr(g, "request_start_time", time.perf_counter())
+    duration_ms = (time.perf_counter() - start_time) * 1000
+
+    response.headers["X-Request-ID"] = request_id
+    log_message = (
+        "Request completed request_id=%s method=%s path=%s status=%s duration_ms=%.2f"
+    )
+    log_args = (
+        request_id,
+        request.method,
+        request.path,
+        response.status_code,
+        duration_ms,
+    )
+
+    if response.status_code >= 500:
+        app.logger.error(log_message, *log_args)
+    elif response.status_code >= 400:
+        app.logger.warning(log_message, *log_args)
+    else:
+        app.logger.info(log_message, *log_args)
+
+    return response
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    # Do not log request bodies, student records, credentials, or other personal data.
+    app.logger.exception(
+        "Unhandled application error request_id=%s path=%s",
+        getattr(g, "request_id", "unavailable"),
+        request.path,
+    )
+    return jsonify({
+        "error": "An internal server error occurred.",
+        "request_id": getattr(g, "request_id", "unavailable"),
+    }), 500
 
 
 def engineer_features(data):
@@ -135,6 +203,10 @@ def predict():
     payload = request.get_json(silent=True)
 
     if not isinstance(payload, dict):
+        app.logger.warning(
+            "Prediction rejected request_id=%s reason=invalid_json_object",
+            getattr(g, "request_id", "unavailable"),
+        )
         return jsonify({
             "error": "Send a valid JSON object containing student details."
         }), 400
@@ -145,6 +217,11 @@ def predict():
     ]
 
     if missing_features:
+        app.logger.warning(
+            "Prediction rejected request_id=%s reason=missing_features count=%s",
+            getattr(g, "request_id", "unavailable"),
+            len(missing_features),
+        )
         return jsonify({
             "error": "Missing required input features.",
             "missing_features": missing_features,
@@ -159,6 +236,12 @@ def predict():
         prediction = int(model.predict(input_data)[0])
 
         result = "PASS" if prediction == 1 else "FAIL"
+        app.logger.info(
+            "Prediction completed request_id=%s prediction=%s result=%s",
+            getattr(g, "request_id", "unavailable"),
+            prediction,
+            result,
+        )
 
         return jsonify({
             "prediction": prediction,
@@ -166,6 +249,11 @@ def predict():
         })
 
     except (TypeError, ValueError) as error:
+        app.logger.warning(
+            "Prediction input validation failed request_id=%s error_type=%s",
+            getattr(g, "request_id", "unavailable"),
+            type(error).__name__,
+        )
         return jsonify({
             "error": "One or more input values are invalid.",
             "details": str(error),
@@ -173,4 +261,5 @@ def predict():
 
 
 if __name__ == "__main__":
+    app.logger.info("Starting Student Academic Performance Prediction API")
     app.run(host="0.0.0.0", port=5000, debug=False)
