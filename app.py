@@ -98,7 +98,7 @@ NUMERIC_FEATURES = [
 def load_model():
     if not os.path.exists(MODEL_FILE):
         MODEL_LOADED.set(0)
-    app.logger.error("Model file is missing: %s", MODEL_FILE)
+        app.logger.error("Model file is missing: %s", MODEL_FILE)
         raise FileNotFoundError(
             f"{MODEL_FILE} not found. Train the model before starting the API."
         )
