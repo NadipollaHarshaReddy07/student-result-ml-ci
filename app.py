@@ -8,6 +8,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from flask import Flask, request, jsonify, g
+from werkzeug.exceptions import HTTPException
 
 # Send structured application logs to stdout so Render can collect them.
 logging.basicConfig(
@@ -123,6 +124,19 @@ def finish_request_logging(response):
     else:
         app.logger.info(log_message, *log_args)
 
+    return response
+
+
+@app.errorhandler(HTTPException)
+def handle_http_error(error):
+    # Preserve standard HTTP status codes such as 404 instead of converting
+    # them into generic 500 responses.
+    response = jsonify({
+        "error": error.name,
+        "message": error.description,
+        "request_id": getattr(g, "request_id", "unavailable"),
+    })
+    response.status_code = error.code or 500
     return response
 
 
