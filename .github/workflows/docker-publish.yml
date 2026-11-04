@@ -31,9 +31,12 @@ jobs:
             exit 1
           fi
           echo "Using successful ML CI run: $RUN_ID"
-          gh run download "$RUN_ID" --name student-result-ml-artifacts --dir .
-          test -f student_academic_model.pkl
-          test -f metrics.json
+          mkdir -p downloaded-artifacts
+          gh run download "$RUN_ID" --name student-result-ml-artifacts --dir downloaded-artifacts
+          test -f downloaded-artifacts/student_academic_model.pkl
+          test -f downloaded-artifacts/metrics.json
+          cp downloaded-artifacts/student_academic_model.pkl .
+          cp downloaded-artifacts/metrics.json .
 
       - name: Build Docker image
         run: |
