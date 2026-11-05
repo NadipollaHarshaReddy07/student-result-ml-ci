@@ -116,3 +116,94 @@ jobs:
         run: |
           docker push "$IMAGE_NAME:latest"
           docker push "$IMAGE_NAME:sha-$GITHUB_SHA"
+
+  deploy-kubernetes:
+    needs: build-test-publish
+    runs-on: [self-hosted, Windows, X64]
+
+    steps:
+      - name: Verify Kubernetes connection
+        shell: pwsh
+        run: |
+          kubectl config current-context
+          if ($LASTEXITCODE -ne 0) { throw "Kubernetes context check failed" }
+
+          kubectl get nodes
+          if ($LASTEXITCODE -ne 0) { throw "Cannot access Kubernetes cluster" }
+
+      - name: Deploy application to Minikube
+        shell: pwsh
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $deployment = "student-result-prediction"
+          $container = "student-result-api"
+          $updated = $false
+          $portForward = $null
+
+          try {
+            Write-Host "Deploying image: $env:IMAGE"
+
+            kubectl set image "deployment/$deployment" "$container=$env:IMAGE"
+            if ($LASTEXITCODE -ne 0) { throw "Image update failed" }
+            $updated = $true
+
+            kubectl rollout status "deployment/$deployment" --timeout=180s
+            if ($LASTEXITCODE -ne 0) { throw "Deployment rollout failed" }
+
+            Write-Host "Starting application health check..."
+
+            $portForward = Start-Process kubectl -ArgumentList @(
+              "port-forward",
+              "deployment/$deployment",
+              "18080:5000",
+              "--address=127.0.0.1"
+            ) -PassThru -WindowStyle Hidden
+
+            $healthy = $false
+
+            for ($i = 1; $i -le 20; $i++) {
+              Start-Sleep -Seconds 2
+
+              try {
+                $response = Invoke-WebRequest `
+                  -Uri "http://127.0.0.1:18080/health" `
+                  -UseBasicParsing -TimeoutSec 3
+
+                if ($response.StatusCode -eq 200) {
+                  $healthy = $true
+                  break
+                }
+              }
+              catch {
+                Write-Host "Waiting for application health... attempt $i"
+              }
+            }
+
+            if (-not $healthy) {
+              throw "Application health check failed"
+            }
+
+            Write-Host "Deployment successful. Application is healthy."
+          }
+          catch {
+            Write-Host "Deployment failed: $_"
+
+            if ($updated) {
+              Write-Host "Rolling back to previous version..."
+
+              kubectl rollout undo "deployment/$deployment"
+
+              if ($LASTEXITCODE -eq 0) {
+                kubectl rollout status "deployment/$deployment" --timeout=180s
+              }
+            }
+
+            throw
+          }
+          finally {
+            if ($null -ne $portForward -and -not $portForward.HasExited) {
+              Stop-Process -Id $portForward.Id -Force
+            }
+          }
