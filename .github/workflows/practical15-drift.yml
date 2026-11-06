@@ -1,0 +1,91 @@
+
+name: Practical 15 - Data Drift and Model Retraining
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift-detection-and-retraining:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate reference dataset
+        run: |
+          python drift/prepare_reference.py
+
+      - name: Test stable data
+        run: |
+          python drift/simulate_current_data.py --mode stable
+          python drift/detect_drift.py
+          python -c "import json; r=json.load(open('drift/drift_report.json')); assert not r['overall_drift_detected'], 'Unexpected drift in stable data'; print('Stable data test passed')"
+
+      - name: Generate drifted data
+        run: |
+          python drift/simulate_current_data.py --mode drift
+
+      - name: Detect data drift
+        run: |
+          python drift/detect_drift.py
+          python -c "import json; r=json.load(open('drift/drift_report.json')); assert r['overall_drift_detected'], 'Expected drift was not detected'; print('Drift detected:', r['drifted_features'])"
+
+      - name: Prepare simulated labeled data
+        run: |
+          python drift/prepare_labeled_data.py
+
+      - name: Retrain candidate model
+        run: |
+          python drift/retrain_candidate.py
+
+      - name: Apply candidate quality gate
+        run: |
+          python drift/approve_candidate.py
+          python -c "import json; m=json.load(open('drift/retraining_metrics.json')); assert m['accuracy'] >= 0.85, 'Candidate failed quality gate'; print('Candidate approved')"
+
+      - name: Prepare metrics for existing tests
+        run: |
+          python -c "import json; m=json.load(open('drift/retraining_metrics.json')); m['feature_count']=30; json.dump(m,open('metrics.json','w'),indent=4)"
+
+      - name: Run ML pipeline tests
+        run: |
+          python -m pytest test_ml_pipeline.py -v
+
+      - name: Run Flask application tests
+        run: |
+          python -m pytest test_app.py -v
+
+      - name: Upload Practical 15 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: practical15-drift-evidence
+          path: |
+            drift/reference_data.csv
+            drift/current_data.csv
+            drift/current_labeled_data.csv
+            drift/drift_report.json
+            drift/retraining_metrics.json
+            drift/student_result_model_candidate.pkl
+            metrics.json
+          if-no-files-found: error
+          retention-days: 7

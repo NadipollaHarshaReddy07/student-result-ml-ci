@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Generated drift test data
+drift/reference_data.csv
+drift/current_data.csv
+drift/current_labeled_data.csv
+drift/drift_report.json
+drift/retraining_metrics.json
+drift/student_result_model_candidate.pkl
+drift/approved_model_backup.pkl
+
+# Temporary files
+*.log
+# Generated model artifacts
+metrics.json
+student_academic_model.pkl
+
+# Local workflow backup
+ml-ci-backup.yml

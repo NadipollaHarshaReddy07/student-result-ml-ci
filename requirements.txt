@@ -5,3 +5,4 @@ joblib
 flask
 pytest
 prometheus-client
+scipy
